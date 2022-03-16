@@ -26,17 +26,54 @@ const (
 	maxDepth    = 8
 )
 
-func RandomString(b *testing.B, stringLength int) string {
-	const letters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	bytes := make([]byte, stringLength)
-	if _, err := crand.Read(bytes); err != nil {
+func setup(b *testing.B) (dataDir, imgPath string) {
+	// Generate disk image
+	if _, err := os.Stat("gen"); err == nil {
+		// gendir already exists
+	} else if os.IsNotExist(err) {
+		genDiskImage(b, "gen")
+	}
+	imgPath = filepath.Join("gen", "image.ext4")
+
+	// Generate data dir
+	var err error
+	dataDir, err = os.MkdirTemp(".", "data-*")
+	if err != nil {
 		b.Fatal(err)
 	}
-	// Run through bytes; replacing each with the equivalent random char.
-	for i, b := range bytes {
-		bytes[i] = letters[b%byte(len(letters))]
+	b.Cleanup(func() { os.RemoveAll(dataDir) })
+
+	// Return path to image, and path at which we want to unpack
+	b.ResetTimer()
+	return
+}
+
+func BenchmarkCopyOutputsToWorkspace_ExtractImage(b *testing.B) {
+	dataDir, imgPath := setup(b)
+
+	for i := 0; i < b.N; i++ {
+		outDir := filepath.Join(dataDir, fmt.Sprintf("out_%d", i))
+		if err := os.Mkdir(outDir, 0755); err != nil {
+			b.Fatal(err)
+		}
+		if err := copyOutputsToWorkspace(context.Background(), false, imgPath, outDir); err != nil {
+			b.Fatal(err)
+		}
 	}
-	return string(bytes)
+}
+
+func BenchmarkCopyOutputsToWorkspace_MountImage(b *testing.B) {
+	dataDir, imgPath := setup(b)
+
+	for i := 0; i < b.N; i++ {
+		outDir := filepath.Join(dataDir, fmt.Sprintf("out_%d", i))
+		if err := os.Mkdir(outDir, 0755); err != nil {
+			b.Fatal(err)
+		}
+		if err := copyOutputsToWorkspace(context.Background(), true, imgPath, outDir); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func genDiskImage(b *testing.B, genDir string) {
@@ -99,54 +136,17 @@ func genDiskImage(b *testing.B, genDir string) {
 	}
 }
 
-func setup(b *testing.B) (dataDir, imgPath string) {
-	// Generate disk image
-	if _, err := os.Stat("gen"); err == nil {
-		// gendir already exists
-	} else if os.IsNotExist(err) {
-		genDiskImage(b, "gen")
-	}
-	imgPath = filepath.Join("gen", "image.ext4")
-
-	// Generate data dir
-	var err error
-	dataDir, err = os.MkdirTemp(".", "data-*")
-	if err != nil {
+func RandomString(b *testing.B, stringLength int) string {
+	const letters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	bytes := make([]byte, stringLength)
+	if _, err := crand.Read(bytes); err != nil {
 		b.Fatal(err)
 	}
-	b.Cleanup(func() { os.RemoveAll(dataDir) })
-
-	// Return path to image, and path at which we want to unpack
-	b.ResetTimer()
-	return
-}
-
-func BenchmarkCopyOutputsToWorkspace_ExtractImage(b *testing.B) {
-	dataDir, imgPath := setup(b)
-
-	for i := 0; i < b.N; i++ {
-		outDir := filepath.Join(dataDir, fmt.Sprintf("out_%d", i))
-		if err := os.Mkdir(outDir, 0755); err != nil {
-			b.Fatal(err)
-		}
-		if err := copyOutputsToWorkspace(context.Background(), false, imgPath, outDir); err != nil {
-			b.Fatal(err)
-		}
+	// Run through bytes; replacing each with the equivalent random char.
+	for i, b := range bytes {
+		bytes[i] = letters[b%byte(len(letters))]
 	}
-}
-
-func BenchmarkCopyOutputsToWorkspace_MountImage(b *testing.B) {
-	dataDir, imgPath := setup(b)
-
-	for i := 0; i < b.N; i++ {
-		outDir := filepath.Join(dataDir, fmt.Sprintf("out_%d", i))
-		if err := os.Mkdir(outDir, 0755); err != nil {
-			b.Fatal(err)
-		}
-		if err := copyOutputsToWorkspace(context.Background(), true, imgPath, outDir); err != nil {
-			b.Fatal(err)
-		}
-	}
+	return string(bytes)
 }
 
 func copyOutputsToWorkspace(ctx context.Context, mountWorkspaceFile bool, imgPath, outDir string) error {
